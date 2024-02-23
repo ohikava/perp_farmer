@@ -1,8 +1,19 @@
 import perp.config as config 
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils.constants import MAINNET_API_URL
+import eth_account
+import logging 
+
+logger = logging.getLogger(__name__)
+
+
 
 class Hyperliquid:
     def __init__(self, private_key):
-        self.private_key = private_key 
+        self.account = eth_account.Account.from_key(private_key)
+        self.exchange = Exchange(self.account, MAINNET_API_URL)
+
+        logger.info(f"Hyperliquid initialized with address: {self.account.address}")
 
     def buy_order(self, coin, sz, px, side):
         pass

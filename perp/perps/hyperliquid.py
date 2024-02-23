@@ -1,4 +1,5 @@
 import perp.config as config 
+import perp.constants as constants 
 from hyperliquid.exchange import Exchange
 from hyperliquid.info import Info
 from hyperliquid.utils.constants import MAINNET_API_URL
@@ -29,15 +30,25 @@ class Hyperliquid:
         return self.exchange.order(coin, True, sz, px, {"limit": {"tif": "Gtc"}})
 
     def sell_order(self, coin, sz, px):
-        px = round(px * (1 - config.HL_SLIPPAGE), config.HL_DECIMALS[coin])
+        px = round(px * (1 + config.HL_SLIPPAGE), config.HL_DECIMALS[coin])
 
         return self.exchange.order(coin, False, sz, px, {"limit": {"tif": "Gtc"}})
 
-    def take_profit(self, coin, sz, px, side):
-        pass
+    def take_profit(self, coin, sz, px, side, trigger_px):
+        trigger_px = round(trigger_px, config.HL_DECIMALS[coin])
+        if side == constants.LONG:
+            side = True 
+        else:
+            side = False
+        return self.exchange.order(coin, side, sz, px, {"trigger": {"triggerPx": trigger_px, 'isMarket': True, 'tpsl': 'tp'}})
 
-    def stop_loss(self, coin, sz, px, side):
-        pass
+    def stop_loss(self, coin, sz, px, side, trigger_px):
+        trigger_px = round(trigger_px, config.HL_DECIMALS[coin])
+        if side == constants.LONG:
+            side = True 
+        else:
+            side = False
+        return self.exchange.order(coin, side, sz, px, {"trigger": {"triggerPx": trigger_px, 'isMarket': True, 'tpsl': 'sl'}})
 
     def load_prices(self, coin):
         pass

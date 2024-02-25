@@ -1,54 +1,119 @@
 import perp.config as config 
 import perp.constants as constants 
-from hyperliquid.exchange import Exchange
-from hyperliquid.info import Info
-from hyperliquid.utils.constants import MAINNET_API_URL
+from perp.utils.hyperliquid_types import Cloid, Meta
+from perp.utils.hyperliquid_api import API
+from perp.utils.hyperliquid_signing import OrderType, OrderRequest, OrderWire, \
+                                        get_timestamp_ms, order_request_to_order_wire, order_wires_to_order_action, \
+                                        sign_l1_action
 import eth_account
 import logging 
+from typing import Optional, Any, List, cast
+import time 
+import os 
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+
 
 logger = logging.getLogger(__name__)
 
 
+class Hyperliquid(API):
+    def __init__(self):
+        super().__init__()
+        self.wallet = eth_account.Account.from_key(os.getenv("HYPERLIQUID_PRIVATE_KEY"))
+        self.vault_address = None
+        
+        self.meta = self.meta()
+        self.coin_to_asset = {asset_info["name"]: asset for (asset, asset_info) in enumerate(self.meta["universe"])}
 
-class Hyperliquid:
-    def __init__(self, private_key):
-        self.account = eth_account.Account.from_key(private_key)
-        self.exchange = Exchange(self.account, MAINNET_API_URL)
-        self.info = Info(MAINNET_API_URL, skip_ws=False)
+    def market_open(
+        self,
+        coin: str,
+        is_buy: bool,
+        sz: float,
+        px: Optional[float] = None,
+        slippage: float = config.HL_SLIPPAGE,
+        cloid: Optional[Cloid] = None,
+    ) -> Any:
 
-        logger.info(f"Hyperliquid initialized with address: {self.account.address}")
+        # Get aggressive Market Price
+        px = self._slippage_price(coin, is_buy, slippage, px)
+        # Market Order is an aggressive Limit Order IoC
+        return self.order(coin, is_buy, sz, px, order_type={"limit": {"tif": "Ioc"}}, reduce_only=False, cloid=cloid)
     
-    def subscribe_user_state(self, cb):
-        user_subscription = { "type": "userEvents", "user": str(self.account.address) }
-
-        self.info.subscribe(user_subscription, cb)
-        logger.info(f"subscribed for {self.account.address} user events")
-
-    def buy_order(self, coin, sz, px):
-        px = round(px * (1 + config.HL_SLIPPAGE), config.HL_DECIMALS[coin])
+    def order(
+        self,
+        coin: str,
+        is_buy: bool,
+        sz: float,
+        limit_px: float,
+        order_type: OrderType,
+        reduce_only: bool = False,
+        cloid: Optional[Cloid] = None,
+    ) -> Any:
+        order: OrderRequest = {
+            "coin": coin,
+            "is_buy": is_buy,
+            "sz": sz,
+            "limit_px": limit_px,
+            "order_type": order_type,
+            "reduce_only": reduce_only,
+        }
+        if cloid:
+            order["cloid"] = cloid
+        return self.bulk_orders([order])
     
-        return self.exchange.order(coin, True, sz, px, {"limit": {"tif": "Gtc"}})
+    def bulk_orders(self, order_requests: List[OrderRequest]) -> Any:
+        order_wires: List[OrderWire] = [
+            order_request_to_order_wire(order, self.coin_to_asset[order["coin"]]) for order in order_requests
+        ]
+        timestamp = get_timestamp_ms()
 
-    def sell_order(self, coin, sz, px):
-        px = round(px * (1 + config.HL_SLIPPAGE), config.HL_DECIMALS[coin])
+        order_action = order_wires_to_order_action(order_wires)
 
-        return self.exchange.order(coin, False, sz, px, {"limit": {"tif": "Gtc"}})
+        signature = sign_l1_action(
+            self.wallet,
+            order_action,
+            timestamp,
+        )
 
-    def take_profit(self, coin, sz, px, side, trigger_px):
-        trigger_px = round(trigger_px, config.HL_DECIMALS[coin])
-        if side == constants.LONG:
-            side = True 
-        else:
-            side = False
-        return self.exchange.order(coin, side, sz, px, {"trigger": {"triggerPx": trigger_px, 'isMarket': True, 'tpsl': 'tp'}})
+        return self._post_action(
+            order_action,
+            signature,
+            timestamp,
+        )
+    
+    def _post_action(self, action, signature, nonce):
+        payload = {
+            "action": action,
+            "nonce": nonce,
+            "signature": signature,
+            "vaultAddress": None,
+        }
+        logging.debug(payload)
+        return self.post("/exchange", payload)
+    
+    def meta(self) -> Meta:
+        return cast(Meta, self.post("/info", {"type": "meta"}))
+    
+    def all_mids(self) -> dict:
+        return self.post("/info", {"type": "allMids"})
+        
+    def _slippage_price(
+        self,
+        coin: str,
+        is_buy: bool,
+        slippage: float,
+        px: Optional[float] = None,
+    ) -> float:
 
-    def stop_loss(self, coin, sz, px, side, trigger_px):
-        trigger_px = round(trigger_px, config.HL_DECIMALS[coin])
-        if side == constants.LONG:
-            side = True 
-        else:
-            side = False
-        return self.exchange.order(coin, side, sz, px, {"trigger": {"triggerPx": trigger_px, 'isMarket': True, 'tpsl': 'sl'}})
-
-    def load_prices(self, coin):
-        pass
+        if not px:
+            # Get midprice
+            px = float(self.all_mids()[coin])
+        # Calculate Slippage
+        px *= (1 + slippage) if is_buy else (1 - slippage)
+        # We round px to 5 significant figures and 6 decimals
+        return round(float(f"{px:.5g}"), 6)

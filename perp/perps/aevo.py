@@ -22,6 +22,8 @@ API_KEY = os.getenv("AEVO_API_KEY")
 API_SECRET = os.getenv("AEVO_API_SECRET")
 SIGN_KEY = os.getenv("AEVO_SIGN_KEY")
 WALLET_ADDRESS = os.getenv("AEVO_WALLET_ADDRESS")
+AEVO_TAKER_FEE = 0.05 / 100
+AEVO_MAKER_FEE = 0.03 / 100
 
 CONFIG = {
     "mainnet": {
@@ -74,6 +76,8 @@ class Aevo:
         if (env != "testnet") and (env != "mainnet"):
             raise ValueError("env must either be 'testnet' or 'mainnet'")
         self.env = env
+
+        self.last_fill = {}
 
     @property
     def address(self):
@@ -251,27 +255,39 @@ class Aevo:
         px *= (1 + slippage) if is_buy else (1 - slippage)
         return round(float(f"{px:.5g}"), config.AEVO_PRICE_DECIMALS[coin])
     
-    def buy_market_order(self, coin, sz):
-        price = self._slippage_price(coin, True, config.AEVO_SLIPPAGE)
+    def market_buy(self, coin, sz, px=None):
+        price = self._slippage_price(coin, True, config.AEVO_SLIPPAGE, px)
         res = self.rest_create_order(instrument_ids[coin], True, price, sz, post_only=False)
-        
-        return {
-            "px": res.get("price", price),
-            "sz": res.get("amount", sz),
+        out = {
+            "px": float(res.get("price", price)),
+            "sz": float(res.get("amount", sz)),
             "order_status": res.get("status", "failed"),
             "side": constants.LONG if res.get('side', 'buy') == 'buy' else constants.SHORT,
-            'coin': coin 
-        } 
+            'coin': coin,
+            "fill_time": time.time(),
+            'perp': 'aevo',
+            "fee": AEVO_TAKER_FEE * float(res.get("amount", sz)) * float(res.get("price", price))
+        }
+        self.last_fill = out
+        return out
 
-    def sell_market_order(self, coin, sz):
-        price = self._slippage_price(coin, False, config.AEVO_SLIPPAGE)
+    def market_sell(self, coin, sz, px=None):
+        price = self._slippage_price(coin, False, config.AEVO_SLIPPAGE, px)
         res = self.rest_create_order(instrument_ids[coin], False, price, sz, post_only=False)
-        
-        return {
-            "px": res.get("price", price),
-            "sz": res.get("amount", sz),
+        out = {
+            "px": float(res.get("price", price)),
+            "sz": float(res.get("amount", sz)),
             "order_status": res.get("order_status", "failed"),
             "side": constants.LONG if res.get('side', 'buy') == 'buy' else constants.SHORT,
-            'coin': coin 
+            'coin': coin,
+            "fill_time": time.time(),
+            'perp': 'aevo',
+            "fee": AEVO_TAKER_FEE * float(res.get("amount", sz)) * float(res.get("price", price))
         } 
-        
+        self.last_fill = out
+        return out 
+    
+    def get_mid_price(self, coin):
+        return float(self.get_index(coin)['price'])
+    
+    

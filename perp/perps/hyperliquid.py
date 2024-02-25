@@ -11,6 +11,7 @@ from typing import Optional, Any, List, cast
 import time 
 import os 
 from dotenv import load_dotenv
+import json 
 
 load_dotenv()
 
@@ -18,7 +19,8 @@ load_dotenv()
 
 
 logger = logging.getLogger(__name__)
-
+HYPERLIQUID_TAKER_FEE = 0.025 / 100
+HYPERLIQUID_MAKER_FEE = -0.002 / 100
 
 class Hyperliquid(API):
     def __init__(self):
@@ -28,7 +30,17 @@ class Hyperliquid(API):
         
         self.meta = self.meta()
         self.coin_to_asset = {asset_info["name"]: asset for (asset, asset_info) in enumerate(self.meta["universe"])}
+        self.last_fill = {} 
 
+    def market_buy(self, coin, sz, px=None):
+        return self.market_open(coin, True, sz, px)
+    
+    def market_sell(self, coin, sz, px=None):
+        return self.market_open(coin, False, sz, px)
+    
+    def get_mid_price(self, coin):
+        return float(self.all_mids()[coin])
+    
     def market_open(
         self,
         coin: str,
@@ -42,7 +54,36 @@ class Hyperliquid(API):
         # Get aggressive Market Price
         px = self._slippage_price(coin, is_buy, slippage, px)
         # Market Order is an aggressive Limit Order IoC
-        return self.order(coin, is_buy, sz, px, order_type={"limit": {"tif": "Ioc"}}, reduce_only=False, cloid=cloid)
+        order_result = self.order(coin, is_buy, sz, px, order_type={"limit": {"tif": "Ioc"}}, reduce_only=False, cloid=cloid)
+
+        if order_result["status"] == "ok":
+            for status in order_result["response"]["data"]["statuses"]:
+                try:
+                    filled = status["filled"]
+                    out = {
+                        "px": float(filled['avgPx']),
+                        "sz": float(filled["totalSz"]),
+                        "order_status": "filled",
+                        "side": constants.LONG if is_buy else constants.SHORT,
+                        "coin": coin,
+                        "fill_time": time.time(),
+                        'perp': 'hyperliquid',
+                        'fee': HYPERLIQUID_TAKER_FEE * float(filled["totalSz"]) * float(filled["avgPx"])
+                    }
+                    self.last_fill = out
+                    return out 
+                
+                except KeyError:
+                    if "resting" in status:
+                        resting = status['resting']
+                        logger.info(f"Order #{coin} is open")
+                        return {}
+                    else:
+                        logger.error(f"status {json.dumps(status)}")
+                        return {}
+        else:
+            logger.error(f'status {order_result["status"]}')
+            return {}
     
     def order(
         self,
@@ -117,3 +158,4 @@ class Hyperliquid(API):
         px *= (1 + slippage) if is_buy else (1 - slippage)
         # We round px to 5 significant figures and 6 decimals
         return round(float(f"{px:.5g}"), 6)
+    

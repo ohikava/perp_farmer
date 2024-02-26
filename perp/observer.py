@@ -22,8 +22,8 @@ class Observer:
         logger.info(logger_msg)
         self.send_sync_message(logger_msg)
 
-    def show_stats(self, aevo_fees, hyperliquid_fees, aevo_profit, hyperliquid_profit):
-        logger_msg = f"aevo fees {aevo_fees}$ hyperliquid fees {hyperliquid_fees}$ aevo profit {aevo_profit}$ hyperliquid profit {hyperliquid_profit}$ total {aevo_profit + hyperliquid_profit - aevo_fees - hyperliquid_fees}$"
+    def show_stats(self, perp1_fees, perp2_fees, perp1_profit, perp2_profit):
+        logger_msg = f"fee1{perp1_fees}$ fee2 {perp2_fees}$ profit1 {perp1_profit}$ profit2 {perp2_profit}$ total {perp1_profit + perp2_profit - perp2_fees - perp1_fees}$"
         logger.info(logger_msg)
-        tg_msg = f"aevo fees: {aevo_fees}$\nhl fees: {hyperliquid_fees}$\naevo profit: {aevo_profit}$\nhl profit: {hyperliquid_profit}$\ntotal: {round(aevo_profit + hyperliquid_profit - aevo_fees - hyperliquid_fees, 2)}$"
+        tg_msg = f"fee1: {perp1_fees}$\nfee2: {perp2_fees}$\nprofit1: {perp1_profit}$\nprofit2: {perp2_profit}$\ntotal: {round(perp1_profit + perp2_profit - perp1_fees - perp2_fees, 2)}$"
         self.send_sync_message(tg_msg)

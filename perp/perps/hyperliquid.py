@@ -7,11 +7,12 @@ from perp.utils.hyperliquid_signing import OrderType, OrderRequest, OrderWire, \
                                         sign_l1_action
 import eth_account
 import logging 
-from typing import Optional, Any, List, cast
+from typing import Optional, Any, List, cast, TypedDict
 import time 
 import os 
 from dotenv import load_dotenv
 import json 
+
 
 load_dotenv()
 
@@ -22,15 +23,26 @@ logger = logging.getLogger(__name__)
 HYPERLIQUID_TAKER_FEE = 0.025 / 100
 HYPERLIQUID_MAKER_FEE = -0.002 / 100
 
+HyperliquidKeys = TypedDict(
+    'HyperliquidKeys',
+    {
+        "private_key": str 
+    }
+)
+
 class Hyperliquid(API):
-    def __init__(self):
+    def __init__(self, keys: HyperliquidKeys):
         super().__init__()
-        self.wallet = eth_account.Account.from_key(os.getenv("HYPERLIQUID_PRIVATE_KEY"))
+        self.wallet = eth_account.Account.from_key(keys["private_key"])
         self.vault_address = None
         
         self.meta = self.meta()
         self.coin_to_asset = {asset_info["name"]: asset for (asset, asset_info) in enumerate(self.meta["universe"])}
         self.last_fill = {} 
+        self.size_decimals = config.HL_SIZE_DECIMALS
+        self.price_decimals = config.HL_PRICE_DECIMALS
+        self.address = self.wallet.address
+        self.name = 'hyperliquid'
 
     def market_buy(self, coin, sz, px=None):
         return self.market_open(coin, True, sz, px)
@@ -158,4 +170,14 @@ class Hyperliquid(API):
         px *= (1 + slippage) if is_buy else (1 - slippage)
         # We round px to 5 significant figures and 6 decimals
         return round(float(f"{px:.5g}"), 6)
+    
+    @classmethod
+    def from_row(cls, row):
+        row = row.strip()
+
+        args: HyperliquidKeys = {
+            'private_key': row
+        }
+
+        return cls(args)
     

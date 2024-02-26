@@ -14,14 +14,10 @@ import perp.config as config
 from dotenv import load_dotenv
 from perp.utils.eip712_structs import Address, Boolean, EIP712Struct, Uint, make_domain
 import perp.constants as constants
-from typing import Optional
+from typing import Optional, TypedDict
 
 load_dotenv()
 
-API_KEY = os.getenv("AEVO_API_KEY")
-API_SECRET = os.getenv("AEVO_API_SECRET")
-SIGN_KEY = os.getenv("AEVO_SIGN_KEY")
-WALLET_ADDRESS = os.getenv("AEVO_WALLET_ADDRESS")
 AEVO_TAKER_FEE = 0.05 / 100
 AEVO_MAKER_FEE = 0.03 / 100
 
@@ -54,16 +50,26 @@ instrument_ids = {
     'BTC': 3396
 }
 
+AevoKeys = TypedDict(
+    'AevoKeys',
+    {
+    "signing_key": str,
+    "address": str,
+    "api_key": str,
+    "api_secret": str
+    }
+)
+
 class Aevo:
     def __init__(
         self,
-        env="mainnet",
-        rest_headers={},
+        keys: AevoKeys
     ):
-        self.signing_key = SIGN_KEY
-        self.wallet_address = WALLET_ADDRESS
-        self.api_key = API_KEY
-        self.api_secret = API_SECRET
+        self.signing_key = keys["signing_key"]
+        self.address = keys['address']
+        self.api_key = keys['api_key']
+        self.api_secret = keys['api_secret']
+        self.name = 'aevo'
 
         self.client = requests
         self.rest_headers = {
@@ -71,6 +77,8 @@ class Aevo:
             "AEVO-SECRET": self.api_secret,
         }
         self.extra_headers = None
+        rest_headers = {}
+        env = 'mainnet'
         self.rest_headers.update(rest_headers)
 
         if (env != "testnet") and (env != "mainnet"):
@@ -78,10 +86,12 @@ class Aevo:
         self.env = env
 
         self.last_fill = {}
+        self.size_decimals = config.AEVO_SIZE_DECIMALS
+        self.price_decimals = config.AEVO_PRICE_DECIMALS
 
-    @property
-    def address(self):
-        return Account.from_key(self.signing_key).address
+    # @property
+    # def address(self):
+    #     return Account.from_key(self.signing_key).address
 
     @property
     def rest_url(self):
@@ -196,7 +206,7 @@ class Aevo:
             price_decimals=price_decimals,
         )
         payload = {
-            "maker": self.wallet_address,
+            "maker": self.address,
             "is_buy": is_buy,
             "instrument": instrument_id,
             "limit_price": str(int(round(limit_price * price_decimals, is_buy))),
@@ -227,7 +237,7 @@ class Aevo:
         salt = random.randint(0, 10**10)  # We just need a large enough number
 
         order_struct = Order(
-            maker=self.wallet_address,  # The wallet"s main address
+            maker=self.address,  # The wallet"s main address
             isBuy=is_buy,
             limitPrice=int(round(limit_price * price_decimals, is_buy)),
             amount=int(round(quantity * amount_decimals, is_buy)),
@@ -289,5 +299,18 @@ class Aevo:
     
     def get_mid_price(self, coin):
         return float(self.get_index(coin)['price'])
+    
+    @classmethod
+    def from_row(cls, row):
+        splitted = row.strip().split(' ')
+        api_secret, api_key, sign_key, address = splitted
+        args: AevoKeys = {
+            'api_secret': api_secret,
+            'api_key': api_key,
+            'signing_key': sign_key,
+            'address': address
+        }
+
+        return cls(args)
     
     

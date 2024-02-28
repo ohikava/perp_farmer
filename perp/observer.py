@@ -4,7 +4,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 client_id=-1002005413825
-token = "6827720178:AAGORl7Nu7jFItPuPQ5O3dXRmiiTWPluD5M"
+token = 
 
 class Observer:
     def send_sync_message(self, msg):
